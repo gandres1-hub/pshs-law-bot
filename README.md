@@ -47,10 +47,17 @@ Philippine laws are not subject to copyright, so the PDFs are included in the re
 
 **Chat (`app/api/chat/route.ts`)**
 
-- `streamText` with `gpt-4o-mini`, one tool (`getInformation`, topK 6) and `maxSteps: 5`.
-- The system prompt limits answers to the retrieved text, requires a citation for every fact, defaults to current law, flags repealed laws, and asks for an explicit "not covered" answer when the laws are silent.
+- `streamText` with `gpt-4o-mini` at temperature 0, one tool (`getInformation`, topK 6) and `maxSteps: 5`.
+- The system prompt limits answers to the retrieved text, requires a citation for every factual sentence, searches again on every follow-up, forbids inferring reasons or differences the text doesn't state, defaults to current law, flags repealed laws, and asks for an explicit "not covered" answer when the laws are silent.
 
 **UI (`app/page.tsx`)**: an empty state with example questions and the library list, Markdown answers, combined and de-duplicated sources, and a layout that works on phones.
+
+## Stretch goals
+
+Two stretch goals are implemented:
+
+1. **Suggested-prompt chips.** The empty state offers six clickable example questions, chosen to show what the bot does well: a direct lookup, a question comparing laws across years, and a question the IRR answers in more detail than the Act. Clicking one sends it immediately. They're defined in the `EXAMPLES` list in `app/page.tsx`.
+2. **Mobile-friendly layout.** The page is responsive from phone width up. The header and input box stay fixed at the top and bottom, message bubbles and source cards wrap to fit narrow screens, and the input uses a 16px font so iOS doesn't zoom in when you tap it.
 
 ## Run it locally
 
@@ -89,6 +96,6 @@ data/                 the five laws (PDF)
 
 ## Known limitations
 
-- **Follow-up questions can overreach.** An open-ended follow-up ("what makes it different?") sometimes produces points that go beyond the text or lack a citation. See the reflection.
+- **Open-ended follow-ups can still overreach slightly.** After the grounding fix, answers to questions like "what makes it different?" stick to the cited text, but may add a clearly labeled guess ("likely because…"). See the reflection and demo question 5.
 - The corpus is limited to the five laws. Questions about budgets per campus, intake numbers, stipend amounts or alumni are out of scope, and the bot says so.
 - RA 8496 is included in its original 1998 form. Its later wording is only visible through RA 9036's amendments.
