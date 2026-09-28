@@ -15,8 +15,10 @@
     "ai": "^4.3.0",
     "dotenv": "^16.4.0",
     "next": "^15.5.26",
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

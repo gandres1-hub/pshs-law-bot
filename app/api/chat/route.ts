@@ -1,10 +1,10 @@
 /**
- * Final Route Handler — Step 4 of Section 4 (RAG-as-tool-call) +
- * the source metadata used by Step 5's UI.
+ * Chat route for the PSHS Law Guide.
  *
- * The model decides whether to call the getInformation tool. When it does,
- * the tool runs vector search and returns chunk text + page + score. The
- * client renders those as collapsible sources under the assistant message.
+ * RAG as a tool call: the model decides when to call getInformation. The tool
+ * embeds the query, searches Upstash Vector, and returns the matching law
+ * sections with their metadata. The client renders those as sources under
+ * the assistant message.
  */
 import { openai } from '@ai-sdk/openai';
 import { streamText, tool, embed } from 'ai';
@@ -13,25 +13,45 @@ import { z } from 'zod';
 
 const index = new Index();
 
+// How many sections to retrieve per search. Chunks are whole sections (or
+// parts of long ones), so 6 covers most questions without flooding the model.
+const TOP_K = 6;
+
+const SYSTEM_PROMPT = `You are the PSHS Law Guide. You answer questions about the laws that govern the Philippine Science High School (PSHS) System, using ONLY the documents in your library:
+
+- RA 12310 (2025), the Expanded PSHS System Act: CURRENT law
+- The Implementing Rules and Regulations (IRR) of RA 12310, approved 29 April 2026: CURRENT rules
+- RA 3661 (1963), RA 8496 (1998) and RA 9036 (2001): REPEALED by RA 12310, Sec. 24; historical reference only
+
+How to answer:
+1. For any question about PSHS laws, rules, governance, officials, campuses, scholarships, students, faculty, funding, taxes, or history, call getInformation before answering. Call it more than once when a question spans several laws or topics (for example, once per law when comparing).
+2. Answer only from the passages getInformation returns. Do not add facts from your own knowledge about PSHS, even if you believe they are true. If the passages do not answer the question, say plainly that the laws in your library do not cover it, and mention what they do cover if that helps.
+3. Cite every fact inline using the law and section from the passage header, e.g. (RA 12310, Sec. 10) or (IRR, Sec. 12). Never cite a section you did not retrieve.
+4. Unless the user asks about history or a specific older law, answer with the current law (RA 12310 and its IRR). When you use a repealed law, say so, e.g. "Under RA 8496 (now repealed)...". When the IRR adds detail to a section of the Act, give both.
+5. Section numbers differ between documents: the IRR numbers its own sections, and RA 9036 renumbered RA 8496. Always cite the number shown in the passage.
+6. Do NOT call getInformation for greetings, thanks, small talk, or questions about what you can do. Reply briefly and suggest one or two example questions instead.
+7. Be concise. Use a short list when naming members, powers or campuses. Quote the law's exact words when precise wording matters (terms, qualifications, deadlines).
+8. You are not a lawyer. If the user needs a decision with legal consequences, suggest checking the official text in the Official Gazette or with the PSHS System.`;
+
 export async function POST(req: Request) {
   const { messages } = await req.json();
 
   const result = streamText({
     model: openai('gpt-4o-mini'),
-    system:
-      'You are a helpful assistant for the Acme Widget API specification. ' +
-      'Use the getInformation tool whenever the user asks a question whose ' +
-      'answer might be in the spec. If the spec does not cover something, ' +
-      'say so directly rather than guessing.',
+    system: SYSTEM_PROMPT,
     messages,
     tools: {
       getInformation: tool({
         description:
-          'Look up information from the Acme Widget API spec. Use this whenever the user asks a substantive question about the API, its endpoints, auth, rate limits, or behavior.',
+          'Search the full text of the PSHS laws (RA 12310 and its IRR, plus the repealed RA 3661, RA 8496 and RA 9036) and return the most relevant sections. ' +
+          'Use it for any substantive question about how the PSHS System is set up, governed, funded or run, and how that changed over time. ' +
+          'Do not use it for greetings, thanks, or questions about the assistant itself.',
         parameters: z.object({
           query: z
             .string()
-            .describe('the topic, term, or sub-question to search for'),
+            .describe(
+              'A focused search phrase in the language of the laws, e.g. "qualifications and term of the Executive Director" or "composition of the Board of Trustees under RA 8496".',
+            ),
         }),
         execute: async ({ query }) => {
           const { embedding } = await embed({
@@ -40,18 +60,25 @@ export async function POST(req: Request) {
           });
           const hits = await index.query({
             vector: embedding,
-            topK: 4,
+            topK: TOP_K,
             includeMetadata: true,
           });
           return hits.map((h) => ({
             text: (h.metadata?.text as string) ?? '',
+            law: (h.metadata?.law as string) ?? '',
+            year: (h.metadata?.year as number) ?? null,
+            status: (h.metadata?.status as string) ?? '',
+            section: (h.metadata?.section as string) ?? '',
+            heading: (h.metadata?.heading as string) ?? '',
             page: (h.metadata?.page as number) ?? null,
+            source: (h.metadata?.source as string) ?? '',
             score: h.score,
           }));
         },
       }),
     },
-    maxSteps: 3,
+    // Up to 4 searches plus the final answer.
+    maxSteps: 5,
   });
 
   return result.toDataStreamResponse();
